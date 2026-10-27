@@ -369,6 +369,35 @@ func TestCheckPreconditions_UsageLogsRequiresOTelAndLoki(t *testing.T) {
 	}
 }
 
+// Forwarding alone still runs a collector, so the OpenTelemetry operator is still
+// required — but nothing is stored locally, so the Loki operator is not. Reporting Loki
+// here would send an operator installing one for no reason.
+func TestCheckPreconditions_ForwardingOnlyRequiresOTelNotLoki(t *testing.T) {
+	s := newTestScheme(t)
+	registerOperatorCondition(s)
+
+	m := newMonitoring(v1alpha1.MonitoringInstanceName)
+	m.Spec.UsageLogs = &v1alpha1.UsageLogs{
+		Exporters: map[string]kruntime.RawExtension{
+			"otlphttp/hub": {Raw: []byte(`{"endpoint":"https://hub.example.com/api/logs/v1/infrastructure/otlp"}`)},
+		},
+	}
+
+	cli := fake.NewClientBuilder().WithScheme(s).Build()
+	err := checkMonitoringPreconditions(context.Background(), cli, m)
+	if err == nil {
+		t.Fatal("expected error when the OpenTelemetry operator is missing")
+	}
+
+	errStr := err.Error()
+	if !strings.Contains(errStr, "Red Hat build of OpenTelemetry") {
+		t.Errorf("forwarding still needs the OpenTelemetry operator, got: %s", errStr)
+	}
+	if strings.Contains(errStr, "Loki Operator") {
+		t.Errorf("forwarding alone must not require the Loki Operator, got: %s", errStr)
+	}
+}
+
 func TestCheckPreconditions_LogsRequiresLokiAndOpenShiftLogging(t *testing.T) {
 	s := newTestScheme(t)
 	registerOperatorCondition(s)
